@@ -1,8 +1,7 @@
-FLAGS = -Wall
-INCLUDES = -I/usr/include/hidapi
+FLAGS = -Wextra
 
 ds4led : ds4.o
-	gcc ${FLAGS} -o $@ $^ -lhidapi-hidraw
+	gcc ${FLAGS} -o $@ $^ -ludev
 
 %.o: %.c
 	gcc ${FLAGS} ${INCLUDES} -c $<

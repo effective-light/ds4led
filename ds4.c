@@ -1,11 +1,12 @@
+#include <errno.h>
+#include <fcntl.h>
+#include <libudev.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
-#include "hidapi.h"
-
-#define SONY_V_ID 0x054c
+#define SONY_VID "054c"
 #define SIZE 32
 
 /* 
@@ -19,11 +20,6 @@
 */
 
 
-void cleanup(hid_device *handle) {
-    hid_close(handle);
-    hid_exit();
-}
-
 unsigned char parse_num(char *str) {
     char *endptr;
     unsigned char num = strtol(str, &endptr, 10);
@@ -36,8 +32,12 @@ unsigned char parse_num(char *str) {
 }
 
 int main(int argc, char **argv) {
-    int opt, v2 = 0;
-    unsigned char r, g, b = 0;
+    int opt = 0;
+    int v2 = 0;
+    int ret = 0;
+    unsigned char r = 0;
+    unsigned char g = 0;
+    unsigned char b = 0;
     while ((opt = getopt(argc, argv, "vr:g:b:")) != -1) {
         switch (opt) {
             case 'v':
@@ -59,20 +59,57 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (hid_init())
-        return -1;
-    
-    hid_device *handle;
+    char pid[5];
     if (v2) {
-        handle = hid_open(SONY_V_ID, 0x09cc, NULL); // ds4v2
+        strcpy(pid, "09cc"); // ds4v2
     } else {
-        handle = hid_open(SONY_V_ID, 0x05c4, NULL); // original ds4
+        strcpy(pid, "05c4"); // original ds4
     }
 
-    if (!handle) {
-        printf("unable to open device\n");
-        return 1;
+    struct udev *ctx = udev_new();
+    if (!ctx) {
+       exit(EXIT_FAILURE);
     }
+
+    struct udev_enumerate *iter = udev_enumerate_new(ctx);
+
+    udev_enumerate_add_match_subsystem(iter, "hidraw");
+    udev_enumerate_scan_devices(iter);
+
+    struct udev_list_entry *entry;
+    struct udev_device *dev = NULL;
+    udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(iter)) {
+        const char *path = udev_list_entry_get_name(entry);
+        dev = udev_device_new_from_syspath(ctx, path);
+        if (!dev) {
+            continue;
+        }
+        struct udev_device *usb_parent =
+            udev_device_get_parent_with_subsystem_devtype(dev, "usb",
+                    "usb_device");
+        if (!usb_parent) {
+            goto DEV_END;
+        }
+        const char *vid = udev_device_get_sysattr_value(usb_parent, "idVendor");
+        const char *tmp_pid = udev_device_get_sysattr_value(usb_parent,
+                "idProduct");
+
+        if (!strcmp(vid, SONY_VID) && !strcmp(tmp_pid, pid)) {
+            break;
+        }
+
+DEV_END:
+        udev_device_unref(dev);
+        dev = NULL;
+    }
+
+    if (!dev) {
+        fprintf(stderr, "unable to find the device!\n");
+        ret = 1;
+        goto CLEANUP;
+    }
+
+    int handle = open(udev_device_get_devnode(dev), O_WRONLY);
 
     unsigned char buf[SIZE];
     memset(buf, 0, SIZE);
@@ -83,12 +120,16 @@ int main(int argc, char **argv) {
     buf[7] = g;
     buf[8] = b;
 
-    int count = hid_write(handle, buf, sizeof(buf));
-    if (count < 0) {
-        printf("Unable to write()\n");
-        printf("Error: %ls\n", hid_error(handle));
+    int count = write(handle, buf, SIZE);
+    if (count == -1) {
+        perror("write");
+        ret = 1;
     }
 
-    cleanup(handle);
-    return 0;
+CLEANUP:
+    udev_device_unref(dev);
+    udev_enumerate_unref(iter);
+    udev_unref(ctx);
+
+    return ret;
 }
