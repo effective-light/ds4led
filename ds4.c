@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SONY_VID "054c"
+#define SONY_VID 0x054c
+#define DELIM ":"
 #define SIZE 32
 
 /* 
@@ -54,21 +55,22 @@ int main(int argc, char **argv) {
                 break;
             default:
                 fprintf(stderr, "Usage: %s [-v] [-r c] [-g c] [-b c]\n",
-                    argv[0]);
+                        argv[0]);
                 exit(EXIT_FAILURE);
         }
     }
 
-    char pid[5];
+    int pid;
     if (v2) {
-        strcpy(pid, "09cc"); // ds4v2
+        pid = 0x09cc; // ds4v2
     } else {
-        strcpy(pid, "05c4"); // original ds4
+        pid = 0x05c4; // original ds4
     }
 
     struct udev *ctx = udev_new();
     if (!ctx) {
-       exit(EXIT_FAILURE);
+        fprintf(stderr, "error with udev!\n");
+        exit(EXIT_FAILURE);
     }
 
     struct udev_enumerate *iter = udev_enumerate_new(ctx);
@@ -84,17 +86,20 @@ int main(int argc, char **argv) {
         if (!dev) {
             continue;
         }
-        struct udev_device *usb_parent =
-            udev_device_get_parent_with_subsystem_devtype(dev, "usb",
-                    "usb_device");
-        if (!usb_parent) {
+
+        struct udev_device *hid_parent =
+            udev_device_get_parent_with_subsystem_devtype(dev, "hid", NULL);
+        if (!hid_parent) {
             goto DEV_END;
         }
-        const char *vid = udev_device_get_sysattr_value(usb_parent, "idVendor");
-        const char *tmp_pid = udev_device_get_sysattr_value(usb_parent,
-                "idProduct");
 
-        if (!strcmp(vid, SONY_VID) && !strcmp(tmp_pid, pid)) {
+        char *id = strdup(udev_device_get_property_value(hid_parent, "HID_ID"));
+        strtok(id, DELIM);
+        int vid = strtol(strtok(NULL, DELIM), NULL, 16);
+        int tmp_pid = strtol(strtok(NULL, DELIM), NULL, 16);
+        free(id);
+
+        if (vid == SONY_VID && tmp_pid == pid) {
             break;
         }
 
@@ -126,8 +131,8 @@ DEV_END:
         ret = 1;
     }
 
-CLEANUP:
     udev_device_unref(dev);
+CLEANUP:
     udev_enumerate_unref(iter);
     udev_unref(ctx);
 
