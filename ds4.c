@@ -125,10 +125,11 @@ DEV_END:
     buf[7] = g;
     buf[8] = b;
 
-    int count = write(handle, buf, SIZE);
-    if (count == -1) {
+    if (write(handle, buf, SIZE) == -1) {
         perror("write");
         ret = 1;
+    } else {
+        close(handle);
     }
 
     udev_device_unref(dev);
