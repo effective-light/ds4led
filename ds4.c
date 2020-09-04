@@ -35,7 +35,7 @@ unsigned char parse_num(char *str) {
 int main(int argc, char **argv) {
     int opt = 0;
     int v2 = 0;
-    int ret = 0;
+    int ret = 1;
     unsigned char r = 0;
     unsigned char g = 0;
     unsigned char b = 0;
@@ -110,11 +110,14 @@ DEV_END:
 
     if (!dev) {
         fprintf(stderr, "unable to find the device!\n");
-        ret = 1;
         goto CLEANUP;
     }
 
     int handle = open(udev_device_get_devnode(dev), O_WRONLY);
+    if (handle == -1) {
+        perror("open");
+        goto CLEANUP;
+    }
 
     unsigned char buf[SIZE];
     memset(buf, 0, SIZE);
@@ -127,13 +130,12 @@ DEV_END:
 
     if (write(handle, buf, SIZE) == -1) {
         perror("write");
-        ret = 1;
-    } else {
-        close(handle);
     }
 
-    udev_device_unref(dev);
+    close(handle);
+    ret = 0;
 CLEANUP:
+    udev_device_unref(dev);
     udev_enumerate_unref(iter);
     udev_unref(ctx);
 
